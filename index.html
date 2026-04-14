@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Browse Recorder</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+<style>
+:root{
+    --bg:#000;
+    --card:#121212;
+    --text:#f2f2f2;
+    --muted:#9a9a9a;
+    --border:#1f1f1f;
+}
+
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:'Montserrat',sans-serif;
+}
+
+body{
+    background:var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    overflow-x:hidden;
+}
+
+body::before,
+body::after{
+    content:"";
+    position:fixed;
+    width:600px;
+    height:600px;
+    border-radius:50%;
+    filter:blur(140px);
+    opacity:0.25;
+    z-index:-1;
+    animation:float 10s ease-in-out infinite alternate;
+}
+
+body::before{
+    background:#fff;
+    top:-200px;
+    left:-200px;
+}
+
+body::after{
+    background:#777;
+    bottom:-200px;
+    right:-200px;
+}
+
+@keyframes float{
+    from{transform:translateY(0) scale(1)}
+    to{transform:translateY(120px) scale(1.2)}
+}
+
+.wrapper{
+    display:flex;
+    flex-direction:column;
+    min-height:100vh;
+}
+
+body.empty .wrapper{
+    justify-content:center;
+    align-items:center;
+}
+
+body.has-videos .wrapper{
+    justify-content:flex-start;
+    align-items:center;
+    padding-top:60px;
+    gap:40px;
+}
+
+.top{
+    text-align:center;
+    transition:0.3s;
+}
+
+.title{
+    font-size:44px;
+    font-weight:700;
+    margin-bottom:20px;
+}
+
+.btn{
+    border:1px solid var(--border);
+    background:#0b0b0b;
+    color:var(--text);
+    padding:14px 22px;
+    border-radius:12px;
+    cursor:pointer;
+    font-weight:600;
+    transition:0.25s;
+    margin:5px;
+}
+
+.btn:hover{
+    transform:scale(1.05);
+    border-color:#444;
+}
+
+.stop{display:none}
+
+/* GRID */
+.container{
+    width:100%;
+    max-width:1100px;
+    padding:20px;
+}
+
+.grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+    gap:15px;
+}
+
+.card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:12px;
+    overflow:hidden;
+    animation:fade 0.3s ease;
+}
+
+@keyframes fade{
+    from{opacity:0;transform:translateY(10px)}
+    to{opacity:1;transform:translateY(0)}
+}
+
+.video{
+    width:100%;
+    height:140px;
+    object-fit:cover;
+}
+
+.actions{
+    display:flex;
+    gap:6px;
+    padding:10px;
+}
+
+.smallbtn{
+    flex:1;
+    background:#0a0a0a;
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:6px;
+    border-radius:8px;
+    font-size:12px;
+    cursor:pointer;
+}
+
+.popup{
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.92);
+    display:none;
+    justify-content:center;
+    align-items:center;
+}
+
+.popup video{
+    width:80%;
+    border-radius:10px;
+}
+
+.close{
+    position:absolute;
+    top:20px;
+    right:20px;
+    background:#111;
+    border:1px solid #333;
+    color:white;
+    padding:10px;
+    border-radius:8px;
+    cursor:pointer;
+}
+
+.footer{
+    position:fixed;
+    bottom:12px;
+    left:50%;
+    transform:translateX(-50%);
+    font-size:12px;
+    color:var(--muted);
+}
+
+.footer a{
+    color:white;
+    text-decoration:none;
+}
+</style>
+</head>
+
+<body class="empty">
+
+<div class="wrapper">
+
+    <div class="top">
+        <div class="title">Browse Recorder</div>
+
+        <button id="startRecord" class="btn">Start Recording</button>
+        <button id="stopRecord" class="btn stop">Stop Recording</button>
+    </div>
+
+    <div class="container">
+        <div class="grid" id="grid"></div>
+    </div>
+
+</div>
+
+<div class="popup" id="popup">
+    <button class="close" id="close">Close</button>
+    <video id="popupVideo" controls></video>
+</div>
+
+<div class="footer">
+    Made by <a href="https://github.com/forrealgg" target="_blank">forrealgg</a>
+</div>
+
+<script>
+let mediaRecorder, stream, chunks=[], db;
+
+const start=document.getElementById("startRecord");
+const stop=document.getElementById("stopRecord");
+const grid=document.getElementById("grid");
+const popup=document.getElementById("popup");
+const popupVideo=document.getElementById("popupVideo");
+const close=document.getElementById("close");
+
+function updateLayout(){
+    if(grid.children.length > 0){
+        document.body.classList.remove("empty");
+        document.body.classList.add("has-videos");
+    } else {
+        document.body.classList.add("empty");
+        document.body.classList.remove("has-videos");
+    }
+}
+
+function openDB(){
+    let req=indexedDB.open("browseRecorder",1);
+
+    req.onupgradeneeded=e=>{
+        db=e.target.result;
+        if(!db.objectStoreNames.contains("videos")){
+            db.createObjectStore("videos",{keyPath:"id",autoIncrement:true});
+        }
+    };
+
+    req.onsuccess=e=>{
+        db=e.target.result;
+        load();
+    };
+}
+
+function save(blob,date){
+    let tx=db.transaction("videos","readwrite");
+    tx.objectStore("videos").add({blob,date});
+}
+
+function load(){
+    let tx=db.transaction("videos","readonly");
+    tx.objectStore("videos").getAll().onsuccess=e=>{
+        e.target.result.forEach(v=>render(v.blob,v.date));
+        updateLayout();
+    };
+}
+
+start.onclick=async()=>{
+    stream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
+    mediaRecorder=new MediaRecorder(stream);
+
+    mediaRecorder.ondataavailable=e=>chunks.push(e.data);
+
+    mediaRecorder.onstop=()=>{
+        let blob=new Blob(chunks,{type:"video/webm"});
+        chunks=[];
+        let date=new Date().toLocaleString();
+
+        save(blob,date);
+        render(blob,date);
+        updateLayout();
+    };
+
+    mediaRecorder.start();
+    start.style.display="none";
+    stop.style.display="inline-block";
+};
+
+stop.onclick=()=>{
+    mediaRecorder.stop();
+    stream.getTracks().forEach(t=>t.stop());
+    start.style.display="inline-block";
+    stop.style.display="none";
+};
+
+function render(blob,date){
+    let url=URL.createObjectURL(blob);
+
+    let card=document.createElement("div");
+    card.className="card";
+
+    card.innerHTML=`
+        <video class="video" src="${url}"></video>
+        <div class="actions">
+            <button class="smallbtn play">Play</button>
+            <button class="smallbtn dl">Download</button>
+            <button class="smallbtn del">Delete</button>
+        </div>
+    `;
+
+    card.querySelector(".play").onclick=()=>{
+        popup.style.display="flex";
+        popupVideo.src=url;
+        popupVideo.play();
+    };
+
+    card.querySelector(".dl").onclick=()=>{
+        let a=document.createElement("a");
+        a.href=url;
+        a.download="record.webm";
+        a.click();
+    };
+
+    card.querySelector(".del").onclick=()=>{
+        card.remove();
+        updateLayout();
+    };
+
+    grid.appendChild(card);
+    updateLayout();
+}
+
+close.onclick=()=>{
+    popup.style.display="none";
+    popupVideo.pause();
+    popupVideo.src="";
+};
+
+openDB();
+</script>
+
+</body>
+</html>
