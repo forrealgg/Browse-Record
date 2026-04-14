@@ -11,7 +11,7 @@ Browse-Recorder is an all in one Screen Recorder Fully made in browser! Supporti
 
 
 ## How to use?
-1. Open the app in your browser.
+1. Open [the app](https://forrealgg.github.io/Browse-Record/) in your browser.
 2. Click Start Recording to begin capturing your screen.
 3. Choose what you want to share (entire screen, window, or tab).
 4. Click Stop Recording when finished.
